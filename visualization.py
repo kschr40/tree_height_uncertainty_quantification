@@ -133,7 +133,7 @@ def get_input_output_visualization(
             axs[i, 0].set_title(f"Image {i + 1}")
 
             # plot the model output in the second column
-            im = axs[i, 1].imshow(outputs[i, 0, :, :], cmap="viridis", vmin=0, vmax=35)
+            im = axs[i, 1].imshow(outputs[i, :, :], cmap="viridis", vmin=0, vmax=35)
             axs[i, 1].set_title(f"Output {i + 1}")
 
         # Create colorbar
@@ -209,3 +209,92 @@ def get_visualization_boxplots(
         return plt.gcf()  # return the current figure
 
     return visualization_boxplots
+
+def get_scatter_plot_uncertainty(plot_labels=True):
+    def scatter_plot_uncertainty(pred, pred_lower, pred_upper, labels):
+        pred = pred.cpu().detach().numpy().flatten()
+        pred_lower = pred_lower.cpu().detach().numpy().flatten()
+        pred_upper = pred_upper.cpu().detach().numpy().flatten()
+        labels = labels.cpu().detach().numpy().flatten()
+        if plot_labels:
+            x = labels
+        else:
+            x = pred
+        interval_width = pred_upper - pred_lower
+        error = np.abs(pred - labels)
+        plt.figure(figsize=(10, 6))
+        plt.scatter(x, interval_width, s=1, alpha=0.5, c=error, cmap='Reds', vmin=0, vmax=20)
+        plt.xlim(0, 60)
+        plt.ylim(0, 60)
+        plt.xlabel("True Height" if plot_labels else "Predicted Height")
+        plt.ylabel("Interval Width (Upper - Lower)")
+        plt.title("Interval Width vs True Height")
+        plt.colorbar(label='Absolute Error')
+        plt.grid(True)
+        return plt.gcf()  # return the current figure
+    return scatter_plot_uncertainty
+
+def get_interval_width_visualization():
+    def interval_width_visualization(pred, pred_lower, pred_upper, labels):
+        pred = pred.cpu().detach().numpy().flatten()
+        pred_lower = pred_lower.cpu().detach().numpy().flatten()
+        pred_upper = pred_upper.cpu().detach().numpy().flatten()
+        labels = labels.cpu().detach().numpy().flatten()
+
+        interval_width = pred_upper - pred_lower
+        interval_width = np.clip(interval_width, -0.5, 20.5)
+
+        plt.figure(figsize=(10, 6))
+        plt.hist(interval_width, bins=np.arange(-0.5,21, 0.5), color='blue', alpha=0.7)
+        plt.xlabel("Interval Width (Upper - Lower)")
+        plt.ylabel("Frequency")
+        plt.title("Histogram of Interval Widths")
+        plt.grid(True)
+        return plt.gcf()  # return the current figure
+    return interval_width_visualization
+
+def get_scatter_plot_interval_width():
+    def scatter_plot_interval_width(pred, pred_lower, pred_upper, labels):
+        pred = pred.cpu().detach().numpy().flatten()
+        pred_lower = pred_lower.cpu().detach().numpy().flatten()
+        pred_upper = pred_upper.cpu().detach().numpy().flatten()
+        labels = labels.cpu().detach().numpy().flatten()
+
+        interval_width = pred_upper - pred_lower
+        error = np.abs(pred - labels)
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(labels, pred, s=1, alpha=0.5, c=interval_width, cmap='Reds', vmin=0, vmax=20)
+        plt.xlim(0, 60)
+        plt.ylim(0, 60)
+        plt.xlabel("True Height")
+        plt.ylabel("Predicted Height")
+        plt.title("Predicted Height vs True Height")
+        plt.colorbar(label='Interval Width (Upper - Lower)')
+        plt.grid(True)
+        return plt.gcf()  # return the current figure
+    return scatter_plot_interval_width
+
+def get_scatter_plot_uncertainty_error_vs_interval(plot_labels=True):
+    def scatter_plot_uncertainty_error_vs_interval(pred, pred_lower, pred_upper, labels):
+        pred = pred.cpu().detach().numpy().flatten()
+        pred_lower = pred_lower.cpu().detach().numpy().flatten()
+        pred_upper = pred_upper.cpu().detach().numpy().flatten()
+        labels = labels.cpu().detach().numpy().flatten()
+        if plot_labels:
+            c = labels
+        else:
+            c = pred
+        interval_width = pred_upper - pred_lower
+        error = np.abs(pred - labels)
+        plt.figure(figsize=(10, 6))
+        plt.scatter(error, interval_width, s=1, alpha=0.5, c=c, cmap='Reds', vmin=0, vmax=30)
+        plt.xlim(0, 40)
+        plt.ylim(0, 40)
+        plt.xlabel("Absolute Error")
+        plt.ylabel("Interval Width (Upper - Lower)")
+        plt.title("Interval Width vs Absolute Error")
+        plt.colorbar(label="True Height" if plot_labels else "Predicted Height")
+        plt.grid(True)
+        return plt.gcf()  # return the current figure
+    return scatter_plot_uncertainty_error_vs_interval

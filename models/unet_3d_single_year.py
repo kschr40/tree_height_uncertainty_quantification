@@ -262,7 +262,7 @@ class UNetTwelveMonth(nn.Module):
         output = self.last_conv(x4_up)
 
         # Remove one dimension to match the label data format
-        output_tensor = torch.squeeze(output, dim=1)
+        output_tensor = torch.squeeze(output, dim=2)
         return output_tensor
 
 

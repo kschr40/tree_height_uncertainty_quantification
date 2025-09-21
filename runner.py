@@ -83,8 +83,9 @@ class Runner:
 
         # Variables to be set
         self.loader = {loader_type: None for loader_type in ['train', 'val']}
-        self.loss_criteria = {loss_name: self.get_loss(loss_name=loss_name) for loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber']}
-        for threshold in [15, 20, 25, 30]:
+        self.loss_criteria = {loss_name: self.get_loss(loss_name=loss_name) for loss_name in ['l1', 'l2', 'huber']}
+        self.loss_criteria[self.config.loss_name] = self.get_loss(loss_name=self.config.loss_name)
+        for threshold in [5,10]:
             self.loss_criteria[f"l1_{threshold}"] = self.get_loss(loss_name=f"l1", threshold=threshold)
 
         self.optimizer = None
@@ -92,21 +93,26 @@ class Runner:
         self.model = None
         self.artifact = None
         self.model_paths = {model_type: None for model_type in ['initial', 'trained']}
+        if 'model_paths' in self.config.keys() and self.config.model_paths is not None:
+            for model_type, model_path in self.config.model_paths.items():
+                if model_type in self.model_paths:
+                    self.model_paths[model_type] = model_path
         self.model_metrics = {  # Organized way of saving metrics needed for retraining etc.
         }
 
         self.metrics = {mode: {'loss': MeanMetric().to(device=self.device),
-                               'shift_l1': MeanMetric().to(device=self.device),
-                               'shift_l2': MeanMetric().to(device=self.device),
-                               'shift_huber': MeanMetric().to(device=self.device),
+                            #    'shift_l1': MeanMetric().to(device=self.device),
+                            #    'shift_l2': MeanMetric().to(device=self.device),
+                            #    'shift_huber': MeanMetric().to(device=self.device),
                                'l1': MeanMetric().to(device=self.device),
                                'l2': MeanMetric().to(device=self.device),
                                'huber': MeanMetric().to(device=self.device),
+                                self.config.loss_name: MeanMetric().to(device=self.device),
                                }
                         for mode in ['train', 'val']}
 
         for mode in ['train', 'val']:
-            for threshold in [15, 20, 25, 30]:
+            for threshold in [5,10]:
                 self.metrics[mode][f"l1_{threshold}"] = MeanMetric().to(device=self.device)
         
         # Add the metrics for each year
@@ -424,6 +430,32 @@ class Runner:
             # Load the state_dict
             model.load_state_dict(new_state_dict)
 
+        if self.config.loss_name in ['gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll']:
+            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
+                out_channels = 2
+            elif self.config.loss_name == 'quantile':
+                out_channels = 3
+            elif self.config.loss_name == 'gaussian_mixture':
+                out_channels = 4
+            for param in model.parameters():
+                param.requires_grad = False
+            import torch.nn as nn
+            weight = model.last_conv.weight.data
+            bias = model.last_conv.bias.data
+            model.last_conv = nn.Conv3d(64, out_channels, 1)
+            for param in model.last_conv.parameters():
+                param.requires_grad = False
+            model.last_conv.weight[0:1] = weight
+            model.last_conv.bias[0:1] = bias
+            if self.config.loss_name == 'quantile':
+                # Initialize the other two channels to reasonable values
+                model.last_conv.weight[1:2] = weight
+                model.last_conv.bias[1:2] = bias
+                model.last_conv.weight[2:3] = weight
+                model.last_conv.bias[2:3] = bias
+            for param in model.last_conv.parameters():
+                param.requires_grad = True
+
         if self.dataParallel and reinit and not isinstance(model, torch.nn.DataParallel):
             # Only apply DataParallel when re-initializing the model!
             # We use DataParallelism
@@ -432,12 +464,15 @@ class Runner:
         return model
 
     def get_loss(self, loss_name: str, threshold: float = None):
-        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber'], f"Loss {loss_name} not implemented."
+        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll'], f"Loss {loss_name} not implemented."
         if threshold is not None:
             assert loss_name == 'l1', f"Threshold only implemented for l1 loss, not {loss_name}."
         # Dim 1 is the channel dimension, 0 is batch.
         # Sums up to get average height, could be mean without zeros
-        remove_sub_track = lambda out, target: (out, torch.sum(target, dim=1))
+        if loss_name in  ['gaussian_nll','quantile', 'gaussian_mixture', 'lognormal_nll']:
+            remove_sub_track = lambda out, target: (out, torch.sum(target, dim=1))
+        else:
+            remove_sub_track = lambda out, target: (out[:,0:1,...], torch.sum(target, dim=1))
 
         if loss_name == 'shift_l1':
             from losses.shift_l1_loss import ShiftL1Loss
@@ -460,6 +495,18 @@ class Runner:
         elif loss_name == 'huber':
             from losses.huber_loss import HuberLoss
             loss = HuberLoss(ignore_value=0, pre_calculation_function=remove_sub_track, delta=3.0)
+        elif loss_name == 'gaussian_nll':
+            from losses.gaussian_nll_loss import GaussianNLLLoss
+            loss = GaussianNLLLoss(ignore_value=0, pre_calculation_function=remove_sub_track)  
+        elif loss_name == 'quantile':
+            from losses.quantile_loss import QuantileLoss
+            loss = QuantileLoss(ignore_value=0, pre_calculation_function=remove_sub_track, quantiles=[0.5, 0.1, 0.9])   
+        elif loss_name == 'gaussian_mixture':
+            from losses.gaussian_mixture import GaussianMixtureLoss
+            loss = GaussianMixtureLoss(ignore_value=0, pre_calculation_function=remove_sub_track)    
+        elif loss_name == 'lognormal_nll':
+            from losses.lognormal_nll_loss import LogNormalNLLLoss
+            loss = LogNormalNLLLoss(ignore_value=0, pre_calculation_function=remove_sub_track)
         loss = loss.to(device=self.device)
         return loss
 
@@ -472,9 +519,15 @@ class Runner:
 
 
         def remove_sub_track_vis(inputs, labels, outputs):
-            return inputs, labels.sum(
-                axis=1), outputs  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
-
+            if outputs.ndim > 1:
+                if self.config.loss_name in ['gaussian_nll','quantile', 'gaussian_mixture', 'lognormal_nll'] and outputs.ndim >= 4:
+                    # Gaussian NLL case
+                    return inputs, labels.sum(
+                        axis=1), outputs[:,0,...]  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
+                
+                return inputs, labels.sum(
+                    axis=1), outputs  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
+            return inputs, labels, outputs
         if viz_name == 'input_output':
             viz_fn = visualization.get_input_output_visualization(rgb_channels=[3,2,1],
                                                                       process_variables=remove_sub_track_vis, single_month_scaling=self.config.single_month_scaling)
@@ -484,6 +537,24 @@ class Runner:
         elif viz_name == 'boxplot':
             viz_fn = visualization.get_visualization_boxplots(ignore_value=0, process_variables=remove_sub_track_vis)
         return viz_fn(inputs=inputs, labels=labels, outputs=outputs)
+
+    def get_visualization_uncertainty(self, viz_name: str, pred, pred_lower, pred_upper, labels):
+        assert viz_name in ['interval_width', 'scatter_plot_uncertainty_label',
+                            'scatter_plot_uncertainty_pred', 'get_scatter_plot_interval_width',
+                            'scatter_plot_uncertainty_error_vs_interval_pred','scatter_plot_uncertainty_error_vs_interval_label'], f"Visualization {viz_name} not implemented."
+        if viz_name == 'interval_width':
+            viz_fn = visualization.get_interval_width_visualization()
+        elif viz_name == 'scatter_plot_uncertainty_label':
+            viz_fn = visualization.get_scatter_plot_uncertainty(plot_labels=True)
+        elif viz_name == 'scatter_plot_uncertainty_pred':
+            viz_fn = visualization.get_scatter_plot_uncertainty(plot_labels=False)
+        elif  viz_name == 'get_scatter_plot_interval_width':
+            viz_fn = visualization.get_scatter_plot_interval_width()
+        elif  viz_name == 'scatter_plot_uncertainty_error_vs_interval_pred':
+            viz_fn = visualization.get_scatter_plot_uncertainty_error_vs_interval(plot_labels=False)
+        elif  viz_name == 'scatter_plot_uncertainty_error_vs_interval_label':
+            viz_fn = visualization.get_scatter_plot_uncertainty_error_vs_interval(plot_labels=True)    
+        return viz_fn(pred=pred, pred_lower=pred_lower, pred_upper=pred_upper, labels=labels)
 
     def get_optimizer(self, initial_lr: float) -> torch.optim.Optimizer:
         """
@@ -613,6 +684,44 @@ class Runner:
             self.scheduler = SequentialSchedulers(optimizer=self.optimizer, schedulers=[warmup_scheduler, scheduler],
                                                   milestones=[milestone])
 
+    def calculate_lower_upper_pred(self,output):
+        from scipy.stats import norm
+        lower_percentile = 0.10
+        upper_percentile = 0.90
+        if self.config.loss_name == 'gaussian_nll':
+            # output has two channels, first is mean, second is log variance
+            mean = output[:,0,...]
+            log_var = output[:,1,...]
+            std = torch.sqrt(torch.exp(log_var))
+            z_score_lower = norm.ppf(lower_percentile)
+            z_score_upper = norm.ppf(upper_percentile)
+            lower_pred = mean + z_score_lower * std
+            upper_pred = mean + z_score_upper * std
+            return lower_pred, upper_pred
+        elif self.config.loss_name == 'quantile':
+            lower_pred = output[:,1,...]
+            upper_pred = output[:,2,...]
+            return lower_pred, upper_pred
+        elif self.config.loss_name == 'gaussian_mixture':
+            avg_mean = output[:,0,...]
+            diff_avg_mean = output[:,1,...]
+            lower_pred = avg_mean - 0.5 * diff_avg_mean
+            upper_pred = avg_mean + 0.5 * diff_avg_mean
+            return lower_pred, upper_pred
+        elif self.config.loss_name == 'lognormal_nll':
+            epsilon = 1e-6
+            exp_mu = output[:, 0, ...]
+            log_var = output[:, 1, ...]
+            mu = torch.log(torch.relu(exp_mu) + epsilon)
+            std = torch.sqrt(torch.exp(log_var))
+            z_score_lower = norm.ppf(lower_percentile)
+            z_score_upper = norm.ppf(upper_percentile)
+            lower_pred = torch.exp(mu + z_score_lower * std)
+            upper_pred = torch.exp(mu + z_score_upper * std)
+            return lower_pred, upper_pred
+        else:
+            return None, None
+
     @torch.no_grad()
     def eval(self, data: str):
         """
@@ -626,6 +735,11 @@ class Runner:
         else:
             sys.stdout.write(f"Evaluating on {data} split.\n")
             dataloader_id = data
+        y_target_full = torch.empty(0, device=self.device)
+        pred_full = torch.empty(0, device=self.device)
+        lower_pred_full = torch.empty(0, device=self.device)
+        upper_pred_full = torch.empty(0, device=self.device)
+
         for step, batch in enumerate(tqdm(self.loader[dataloader_id]), 1):
             x_input, y_target, year = batch
             x_input = x_input.to(self.device, non_blocking=True)
@@ -637,6 +751,8 @@ class Runner:
                     output = self.model.eval()(x_input, year)
                 else:
                     output = self.model.eval()(x_input)
+                lower_pred, upper_pred = self.calculate_lower_upper_pred(output)
+                pred = output[:,0,...]
                 loss = self.loss_criteria[self.loss_name](output, y_target)
                 self.metrics[data]['loss'](value=loss, weight=len(y_target))
                 for loss_type in self.loss_criteria.keys():
@@ -644,7 +760,20 @@ class Runner:
                     # Check if the metric_loss is nan
                     if not torch.isnan(metric_loss):
                         self.metrics[data][loss_type](value=metric_loss, weight=len(y_target))
-                
+
+                y_target_summed = torch.sum(y_target, axis=1)
+                label_index = torch.where(y_target_summed != 0)
+
+                pred_short = pred[label_index]
+                lower_pred_short = lower_pred[label_index]
+                upper_pred_short = upper_pred[label_index]
+                y_target_short = y_target_summed[label_index]
+
+                y_target_full = torch.cat((y_target_full, y_target_short), dim=0)
+                pred_full = torch.cat((pred_full, pred_short), dim=0)
+                lower_pred_full = torch.cat((lower_pred_full, lower_pred_short), dim=0)
+                upper_pred_full = torch.cat((upper_pred_full, upper_pred_short), dim=0)
+
                 # Compute the loss for each year
                 for current_year in self.hardcoded_base_years:
                     for loss_name in self.metrics[f'val_{current_year}'].keys():
@@ -661,10 +790,23 @@ class Runner:
 
             if step <= 4:
                 # Create the visualizations for the first 4 batches
-                for viz_func in ['input_output', 'density_scatter_plot', 'boxplot']:
-                    viz = self.get_visualization(viz_name=viz_func, inputs=x_input, labels=y_target, outputs=output)
+                for viz_func in ['input_output']:
+                    viz = self.get_visualization(viz_name=viz_func, inputs=x_input, labels=y_target, outputs=pred)
                     wandb.log({data + '/' + viz_func + "_" + str(step): wandb.Image(viz)}, commit=False)
-            torch.cuda.empty_cache()    # Might help with memory issues according to this thread: https://github.com/pytorch/pytorch/issues/13246#issuecomment-529185354
+        for viz_func in ['density_scatter_plot' , 'boxplot']:
+            viz = self.get_visualization(viz_name=viz_func, inputs=x_input, labels=y_target_full, outputs=pred_full)
+            wandb.log({data + '/' + viz_func: wandb.Image(viz)}, commit=False)
+        ## Calculate, how many correct predictions we have within the 95% confidence interval
+        in_interval = ((y_target_full >= lower_pred_full) & (y_target_full <= upper_pred_full)).sum().item()
+        total = pred_full.shape[0]
+        coverage = in_interval / total if total > 0 else 0
+        wandb.log({f"{data}/coverage_80_CI": coverage}, commit=False)   
+
+        for viz_func in ['interval_width', 'scatter_plot_uncertainty_label','scatter_plot_uncertainty_pred',
+                         'get_scatter_plot_interval_width','scatter_plot_uncertainty_error_vs_interval_pred','scatter_plot_uncertainty_error_vs_interval_label']:
+            viz = self.get_visualization_uncertainty(viz_name=viz_func, pred=pred_full, pred_lower=lower_pred_full, pred_upper=upper_pred_full, labels=y_target_full)
+            wandb.log({data + '/' + viz_func: wandb.Image(viz)}, commit=False)
+        torch.cuda.empty_cache()    # Might help with memory issues according to this thread: https://github.com/pytorch/pytorch/issues/13246#issuecomment-529185354
 
 
     def train(self):
@@ -675,7 +817,7 @@ class Runner:
         phase_start = time.time()
 
         # Determine log steps
-        if self.debug:
+        if self.debug and False:
             log_steps = []
         elif isinstance(log_freq, float) and 0 < log_freq < 1:
             log_steps = set(int(i * n_iterations * log_freq) for i in range(1, int(1 / log_freq) + 1))
@@ -742,7 +884,7 @@ class Runner:
                     wandb.log({'train/' + viz_func: wandb.Image(viz)}, commit=False)
 
                 # Evaluate the validation dataset
-                if not self.debug:
+                if not self.debug or True:
                     self.eval(data='val')
                 current_val_loss = self.metrics['val']['loss'].compute()
 
