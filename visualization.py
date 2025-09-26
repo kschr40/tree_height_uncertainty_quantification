@@ -221,6 +221,7 @@ def get_scatter_plot_uncertainty(plot_labels=True):
         else:
             x = pred
         interval_width = pred_upper - pred_lower
+        interval_width = np.clip(interval_width, 0, 60)
         error = np.abs(pred - labels)
         plt.figure(figsize=(10, 6))
         plt.scatter(x, interval_width, s=1, alpha=0.5, c=error, cmap='Reds', vmin=0, vmax=20)
@@ -286,6 +287,7 @@ def get_scatter_plot_uncertainty_error_vs_interval(plot_labels=True):
         else:
             c = pred
         interval_width = pred_upper - pred_lower
+        interval_width = np.clip(interval_width, 0, 60)
         error = np.abs(pred - labels)
         plt.figure(figsize=(10, 6))
         plt.scatter(error, interval_width, s=1, alpha=0.5, c=c, cmap='Reds', vmin=0, vmax=30)
