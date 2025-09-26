@@ -122,7 +122,7 @@ class Runner:
 
         self.metrics['train']['ips_throughput'] = MeanMetric().to(device=self.device)
 
-        self.use_early_stopping = config.early_stopping and (not self.debug)
+        self.use_early_stopping = config.get('early_stopping', False) and (not self.debug)
         self.best_val_loss = float('inf')
         self.metrics['best_val'] = {metric_name: MeanMetric().to(device=self.device) for metric_name in self.metrics['val'].keys()}
         # Add the metrics for each year
@@ -275,10 +275,10 @@ class Runner:
         assert not use_weighted_sampler, "Weighted sampler not implemented yet."
 
         scale_adjustments = {
-            'scale_adjust_1234': self.config.scale_adjust_1234,
-            'scale_adjust_6789': self.config.scale_adjust_6789,
-            'scale_adjust_0': self.config.scale_adjust_0,
-            'scale_adjust_51011': self.config.scale_adjust_51011,
+            'scale_adjust_1234': self.config.get('scale_adjust_1234', -0.1),
+            'scale_adjust_6789': self.config.get('scale_adjust_6789', 0.0),
+            'scale_adjust_0': self.config.get('scale_adjust_0', 0.0),
+            'scale_adjust_51011': self.config.get('scale_adjust_51011', 0.0),
         }
 
         trainData = SatelliteImageDataset(data_path=rootPath, shift_year=self.shift_year, 
@@ -338,7 +338,7 @@ class Runner:
 
         num_workers_default = self.config.num_workers_per_gpu if self.config.num_workers_per_gpu is not None else 8
         num_workers = num_workers_default * torch.cuda.device_count() #* int(not self.debug)
-        prefetch_factor = self.config.prefetch_factor   # This includes the None case, which defaults to 2 and is also needed when using num_workers = 0
+        prefetch_factor = self.config.prefetch_factor if self.config.prefetch_factor is not None else 2
         sys.stdout.write(f"Using {num_workers} workers.\n")
         train_sampler = None
         shuffle = True
