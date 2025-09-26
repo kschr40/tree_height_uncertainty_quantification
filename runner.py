@@ -40,6 +40,7 @@ class Runner:
         """
         self.config = config
         self.debug = debug
+        print(config)
 
         # Set the device
         if torch.cuda.is_available():
