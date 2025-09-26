@@ -366,6 +366,13 @@ class Runner:
         """
         print(
             f"Loading model - reinit: {reinit} | path: {model_path if model_path else 'None specified'}.")
+        if self.config.loss_name in ['gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll']:
+            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
+                out_channels = 2
+            elif self.config.loss_name == 'quantile':
+                out_channels = 3
+            elif self.config.loss_name == 'gaussian_mixture':
+                out_channels = 4
         if reinit:
             # Define the model
             arch = self.config.arch or 'unet'
@@ -393,7 +400,7 @@ class Runner:
                     "encoder_name": backbone,
                     "encoder_weights": None if not self.config.use_pretrained_model else 'imagenet',
                     "in_channels": in_channels,
-                    "classes": 1,
+                    "classes": out_channels,
                 }
                 model = smp.Unet(**network_config)
             elif arch == 'single_year_unet3d':
@@ -429,34 +436,6 @@ class Runner:
                 new_state_dict[name] = v
             # Load the state_dict
             model.load_state_dict(new_state_dict, strict = False)
-
-        if self.config.loss_name in ['gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll']:
-            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
-                out_channels = 2
-            elif self.config.loss_name == 'quantile':
-                out_channels = 3
-            elif self.config.loss_name == 'gaussian_mixture':
-                out_channels = 4
-            '''
-            for param in model.parameters():
-                param.requires_grad = False
-            import torch.nn as nn
-            weight = model.last_conv.weight.data
-            bias = model.last_conv.bias.data
-            model.last_conv = nn.Conv3d(64, out_channels, (1,3,3), (0,1,1))
-            for param in model.last_conv.parameters():
-                param.requires_grad = False
-            model.last_conv.weight[0:1] = weight
-            model.last_conv.bias[0:1] = bias
-            if self.config.loss_name == 'quantile':
-                # Initialize the other two channels to reasonable values
-                model.last_conv.weight[1:2] = weight
-                model.last_conv.bias[1:2] = bias
-                model.last_conv.weight[2:3] = weight
-                model.last_conv.bias[2:3] = bias
-            for param in model.last_conv.parameters():
-                param.requires_grad = True
-            '''    
 
         if self.dataParallel and reinit and not isinstance(model, torch.nn.DataParallel):
             # Only apply DataParallel when re-initializing the model!
