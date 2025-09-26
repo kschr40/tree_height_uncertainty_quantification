@@ -188,7 +188,7 @@ class Runner:
         is_palma = bool(re.match(r'r\d+n\d+', platform.uname().node))
 
         # Determine where the data lies
-        for permanent_cache in ['/software/ais2t/pytorch_datasets', '/home/htc/mzimmer/SCRATCH', '/home/jovyan/work/scratch', '/scratch/tmp/j_paul17/datasets', '/home/ubuntu/work/satellite_data/datasets/canopy_height_prediction/']:  # AIS2T Permanent Storage, AIS2T SCRATCH, scratch_jan, palma_jan
+        for permanent_cache in ['/software/ais2t/pytorch_datasets', '/home/htc/mzimmer/SCRATCH', '/home/jovyan/work/scratch', '/scratch/tmp/j_paul17/datasets', '/home/ubuntu/work/satellite_data/datasets/canopy_height_prediction/', '/scratch/tmp/j_paul17/datasets', '/cloud/wwu1/d_satdat/shared_satellite_data/datasets/canopy_height_prediction']:  # AIS2T Permanent Storage, AIS2T SCRATCH, scratch_jan, palma_jan
             permanent_dataset_root = os.path.join(permanent_cache, dataset_name)
             if os.path.isdir(permanent_dataset_root):
                 break
