@@ -290,7 +290,7 @@ class Runner:
 
         # Select at maximum 10% of the data for validation using a fixed random seed. The total amount should be capped as 300*len(self.hardcoded_base_years)
         cut_off = 300*len(self.hardcoded_base_years)
-        if self.debug:
+        if self.debug and False:
             cut_off = int(0.1 * cut_off)
         n_val = min(int(0.1 * len(trainData)), cut_off)
         n_train = len(trainData) - n_val
@@ -336,7 +336,7 @@ class Runner:
         sys.stdout.write(f"Length of train and val splits: {len(trainData)}, {len(valData)}.\n")
 
         num_workers_default = self.config.num_workers_per_gpu if self.config.num_workers_per_gpu is not None else 8
-        num_workers = num_workers_default * torch.cuda.device_count() * int(not self.debug)
+        num_workers = num_workers_default * torch.cuda.device_count() #* int(not self.debug)
         prefetch_factor = self.config.prefetch_factor   # This includes the None case, which defaults to 2 and is also needed when using num_workers = 0
         sys.stdout.write(f"Using {num_workers} workers.\n")
         train_sampler = None
@@ -428,7 +428,7 @@ class Runner:
                     name = k
                 new_state_dict[name] = v
             # Load the state_dict
-            model.load_state_dict(new_state_dict)
+            model.load_state_dict(new_state_dict, strict = False)
 
         if self.config.loss_name in ['gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll']:
             if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
@@ -437,12 +437,13 @@ class Runner:
                 out_channels = 3
             elif self.config.loss_name == 'gaussian_mixture':
                 out_channels = 4
+            '''
             for param in model.parameters():
                 param.requires_grad = False
             import torch.nn as nn
             weight = model.last_conv.weight.data
             bias = model.last_conv.bias.data
-            model.last_conv = nn.Conv3d(64, out_channels, 1)
+            model.last_conv = nn.Conv3d(64, out_channels, (1,3,3), (0,1,1))
             for param in model.last_conv.parameters():
                 param.requires_grad = False
             model.last_conv.weight[0:1] = weight
@@ -455,6 +456,7 @@ class Runner:
                 model.last_conv.bias[2:3] = bias
             for param in model.last_conv.parameters():
                 param.requires_grad = True
+            '''    
 
         if self.dataParallel and reinit and not isinstance(model, torch.nn.DataParallel):
             # Only apply DataParallel when re-initializing the model!

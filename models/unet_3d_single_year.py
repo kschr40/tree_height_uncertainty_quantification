@@ -231,6 +231,15 @@ class UNetTwelveMonth(nn.Module):
 
         # Define the final convolutional layer
         self.last_conv = nn.Conv3d(64, 1, 1)
+        self.last_conv2 = nn.Sequential(
+                                        nn.Conv3d(64, 64, kernel_size=(1,3,3), padding=(0, 1, 1), padding_mode='replicate'),
+                                        nn.GroupNorm(32, 64),
+                                        nn.ReLU(inplace=True),
+                                        nn.Conv3d(64, 64, kernel_size=(1,3,3), padding=(0, 1, 1), padding_mode='replicate'),
+                                        nn.GroupNorm(32, 64),
+                                        nn.ReLU(inplace=True),
+                                        nn.Conv3d(64, 2, kernel_size=(1,1,1), padding=0)        )
+
         self.x1_conv = nn.Conv3d(64, 64, kernel_size=(10,1,1), padding=(0,0,0))
         self.x2_conv = nn.Conv3d(128, 128, kernel_size=(8,1,1), padding=(0,0,0))
         self.x3_conv = nn.Conv3d(256, 256, kernel_size=(6,1,1), padding=(0,0,0))
@@ -260,6 +269,8 @@ class UNetTwelveMonth(nn.Module):
         x4_up = self.up4(x1_agg, x3_up)
 
         output = self.last_conv(x4_up)
+        output2 = self.last_conv2(x4_up)
+        output = torch.concat([output, output2], axis = 1)
 
         # Remove one dimension to match the label data format
         output_tensor = torch.squeeze(output, dim=2)
