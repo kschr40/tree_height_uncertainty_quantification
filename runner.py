@@ -412,7 +412,7 @@ class Runner:
                 if months == 6:
                     model = SingleYearUNetSixMonth(n_channels=in_channels[1])
                 elif months == 12:
-                    model = SingleYearUNetTwelveMonth(n_channels=in_channels[1])
+                    model = SingleYearUNetTwelveMonth(n_channels=in_channels[1], out_channels=out_channels)
             if self.config.time_mode == 'rescale':
                 model = RescaleHeadWrapper(model)
         else:
@@ -629,7 +629,7 @@ class Runner:
             viz = self.get_visualization(viz_name=viz_func, inputs=x_input, labels=y_target, outputs=output)
             wandb.log({'train/' + viz_func: wandb.Image(viz)}, commit=False)
 
-        if not self.debug:
+        if not self.debug and False:
             # Evaluate the validation dataset
             self.eval(data='val')
 

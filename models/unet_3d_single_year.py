@@ -214,7 +214,7 @@ class UNetSixMonth(nn.Module):
     
     
 class UNetTwelveMonth(nn.Module):
-    def __init__(self, n_channels: int):
+    def __init__(self, n_channels: int, out_channels=3):
         super(UNetTwelveMonth, self).__init__()
         # Define the contracting (downsampling) path of the U-Net
         self.conv1 = DoubleConv2(n_channels, 64)  # Starting with 64 channels
@@ -238,7 +238,7 @@ class UNetTwelveMonth(nn.Module):
                                         nn.Conv3d(64, 64, kernel_size=(1,3,3), padding=(0, 1, 1), padding_mode='replicate'),
                                         nn.GroupNorm(32, 64),
                                         nn.ReLU(inplace=True),
-                                        nn.Conv3d(64, 2, kernel_size=(1,1,1), padding=0)        )
+                                        nn.Conv3d(64, out_channels - 1, kernel_size=(1,1,1), padding=0)        )
 
         self.x1_conv = nn.Conv3d(64, 64, kernel_size=(10,1,1), padding=(0,0,0))
         self.x2_conv = nn.Conv3d(128, 128, kernel_size=(8,1,1), padding=(0,0,0))
