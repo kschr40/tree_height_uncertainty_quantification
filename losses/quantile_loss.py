@@ -24,26 +24,22 @@ class QuantileLoss(nn.Module):
         """
         if self.pre_calculation_function != None:
             out, target = self.pre_calculation_function(out, target)
-        quant_dict = []
+        quant_pred_list = []
         for i in range(len(self.quantiles)):
-            quant_dict.append(out[:,i,...].flatten())
+            quant_pred_list.append(out[:,i,...].flatten())
 
         target = target.flatten()
 
         if self.ignore_value is not None:
             mask = target != self.ignore_value
-            for i in range(len(quant_dict)):
-                quant_dict[i] = quant_dict[i][mask]
+            for i in range(len(quant_pred_list)):
+                quant_pred_list[i] = quant_pred_list[i][mask]
             target = target[mask]
         loss_list = []
-        loss_tensor = torch.zeros(len(quant_dict), requires_grad=True)
-        loss = torch.tensor(0.0, requires_grad=True)
-        for i, quant in enumerate(quant_dict):
-            current_loss = torch.max((quant-1) * (target - quant), quant * (target - quant))
-            # loss_tensor[i] += current_loss.mean()
+        for i, quant_pred in enumerate(quant_pred_list):
+            quant = self.quantiles[i]
+            current_loss = torch.max((quant-1) * (target - quant_pred), quant * (target - quant_pred))
             loss_list.append(current_loss.mean())
-            # loss += current_loss.mean()
-        # return (loss_quant0 + loss_quant1 + loss_quant2 + quant_error0 + quant_error1).mean()
         return torch.mean(torch.stack(loss_list))
 
 
