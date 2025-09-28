@@ -367,13 +367,15 @@ class Runner:
         """
         print(
             f"Loading model - reinit: {reinit} | path: {model_path if model_path else 'None specified'}.")
-        if self.config.loss_name in ['gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll']:
+        if self.config.loss_name in ['gaussian_nll', 'quantile', 'quantile_multiple','gaussian_mixture', 'lognormal_nll']:
             if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
                 out_channels = 2
             elif self.config.loss_name == 'quantile':
                 out_channels = 3
             elif self.config.loss_name == 'gaussian_mixture':
                 out_channels = 4
+            elif self.config.loss_name == 'quantile_multiple':
+                out_channels = 11  # 0.05,0.1, 0.15,0.2, 0.25, 0.5, 0.75, 0.8, 0.85, 0.9, 0.95 quantiles    
         if reinit:
             # Define the model
             arch = self.config.arch or 'unet'
@@ -446,12 +448,12 @@ class Runner:
         return model
 
     def get_loss(self, loss_name: str, threshold: float = None):
-        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'gaussian_mixture', 'lognormal_nll'], f"Loss {loss_name} not implemented."
+        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll'], f"Loss {loss_name} not implemented."
         if threshold is not None:
             assert loss_name == 'l1', f"Threshold only implemented for l1 loss, not {loss_name}."
         # Dim 1 is the channel dimension, 0 is batch.
         # Sums up to get average height, could be mean without zeros
-        if loss_name in  ['gaussian_nll','quantile', 'gaussian_mixture', 'lognormal_nll']:
+        if loss_name in  ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll']:
             remove_sub_track = lambda out, target: (out, torch.sum(target, dim=1))
         else:
             remove_sub_track = lambda out, target: (out[:,0:1,...], torch.sum(target, dim=1))
@@ -483,6 +485,10 @@ class Runner:
         elif loss_name == 'quantile':
             from losses.quantile_loss import QuantileLoss
             loss = QuantileLoss(ignore_value=0, pre_calculation_function=remove_sub_track, quantiles=[0.5, 0.1, 0.9])   
+        elif loss_name == 'quantile_multiple':
+            from losses.quantile_loss import QuantileLoss
+            quantiles = [0.5, 0.05, 0.1, 0.15, 0.2, 0.25, 0.75, 0.8, 0.85, 0.9, 0.95]
+            loss = QuantileLoss(ignore_value=0, pre_calculation_function=remove_sub_track, quantiles=quantiles)
         elif loss_name == 'gaussian_mixture':
             from losses.gaussian_mixture import GaussianMixtureLoss
             loss = GaussianMixtureLoss(ignore_value=0, pre_calculation_function=remove_sub_track)    
@@ -502,7 +508,7 @@ class Runner:
 
         def remove_sub_track_vis(inputs, labels, outputs):
             if outputs.ndim > 1:
-                if self.config.loss_name in ['gaussian_nll','quantile', 'gaussian_mixture', 'lognormal_nll'] and outputs.ndim >= 4:
+                if self.config.loss_name in ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll'] and outputs.ndim >= 4:
                     # Gaussian NLL case
                     return inputs, labels.sum(
                         axis=1), outputs[:,0,...]  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
@@ -683,6 +689,10 @@ class Runner:
         elif self.config.loss_name == 'quantile':
             lower_pred = output[:,1,...]
             upper_pred = output[:,2,...]
+            return lower_pred, upper_pred
+        elif self.config.loss_name == 'quantile_multiple':
+            lower_pred = output[:,2,...]
+            upper_pred = output[:,-2,...]
             return lower_pred, upper_pred
         elif self.config.loss_name == 'gaussian_mixture':
             avg_mean = output[:,0,...]
