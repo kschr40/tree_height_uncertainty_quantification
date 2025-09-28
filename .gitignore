@@ -2,5 +2,5 @@ wandb/
 __pycache__/
 *.pt
 *.ipynb_checkpoints
-.yaml
-.json
+*.yaml
+*.json
