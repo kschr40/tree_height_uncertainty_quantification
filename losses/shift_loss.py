@@ -44,13 +44,14 @@ class ShiftLoss(torch.nn.Module):
     def forward(self, predictions, labels):
         """
         Forward pass of the loss function.
-        :param predictions: The predictions of the network.
-        :param labels: The labels of the data.
+        :param predictions: The predictions of the network. Shape (batch, pred_heads, height, width)
+        :param labels: The labels of the data. Shape (batch, granule, height, width)
         :return: The loss.
         """
 
         # Move to correct device
         self.shift_conv.to(predictions.device)
+        batch, pred_heads, height, width = predictions.shape
 
         # Get all relevant dimensions
         batch, granule, height, width = labels.shape
@@ -62,17 +63,18 @@ class ShiftLoss(torch.nn.Module):
 
         shifted_labels = shifted_labels.view(batch, granule, ((self.radius*2)+1)**2, height, width)
 
-        predictions_view = predictions.view(batch, 1, 1, height, width)
+        predictions_view = predictions.view(batch, pred_heads, 1, 1, height, width).expand(-1, -1, granule, ((self.radius*2)+1)**2, -1, -1)
 
         residuals = self.loss_function(shifted_labels, predictions_view)
 
-        residuals[shifted_labels == self.ignore_value] = 0
-
-        residuals_summed = residuals.sum(dim=(3, 4))
-        indices = residuals_summed.min(dim=2).indices
+        ignore_index = torch.where(shifted_labels == self.ignore_value)
+        residuals[ignore_index[0],:,ignore_index[1], ignore_index[2], ignore_index[3], ignore_index[4]]= 0
+        residuals = residuals.mean(dim= 1)
+        residuals_summed = residuals.sum(dim=(-1, -2)) ## shape (batch, granule, (radius*2+1)**2)
+        indices = residuals_summed.min(dim=-1).indices
 
         # Set every granule with less than 10 measurements to no shift (center in convolution)
-        indices[torch.count_nonzero(labels, dim=(2, 3)).reshape(batch, granule) < self.min_measurements] = 4
+        indices[torch.count_nonzero(labels, dim=(-1, -2)).reshape(batch, granule) < self.min_measurements] = 4
 
         indices_expanded = (
             indices.unsqueeze(-1)
