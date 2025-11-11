@@ -367,8 +367,8 @@ class Runner:
         """
         print(
             f"Loading model - reinit: {reinit} | path: {model_path if model_path else 'None specified'}.")
-        if self.config.loss_name in ['gaussian_nll', 'quantile', 'quantile_multiple','gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple']:
-            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll']:
+        if self.config.loss_name in ['gaussian_nll', 'quantile', 'quantile_multiple','gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll']:
+            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll', 'shift_gaussian_nll']:
                 out_channels = 2
             elif self.config.loss_name in ['quantile', 'shift_quantile']:
                 out_channels = 3
@@ -448,7 +448,7 @@ class Runner:
         return model
 
     def get_loss(self, loss_name: str, threshold: float = None):
-        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple'], f"Loss {loss_name} not implemented."
+        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'], f"Loss {loss_name} not implemented."
         if threshold is not None:
             assert loss_name == 'l1', f"Threshold only implemented for l1 loss, not {loss_name}."
         # Dim 1 is the channel dimension, 0 is batch.
@@ -502,6 +502,9 @@ class Runner:
             from losses.shift_quantile_loss import ShiftPinballLoss
             quantiles = [0.5, 0.05, 0.1, 0.15, 0.2, 0.25, 0.75, 0.8, 0.85, 0.9, 0.95]
             loss = ShiftPinballLoss(ignore_value=0, quantiles=quantiles)
+        elif loss_name == 'shift_gaussian_nll':
+            from losses.shift_gaussian_nll import ShiftGaussianNLLLoss
+            loss = ShiftGaussianNLLLoss(ignore_value=0)
         loss = loss.to(device=self.device)
         return loss
 
@@ -515,7 +518,7 @@ class Runner:
 
         def remove_sub_track_vis(inputs, labels, outputs):
             if outputs.ndim > 1:
-                if self.config.loss_name in ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple'] and outputs.ndim >= 4:
+                if self.config.loss_name in ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'] and outputs.ndim >= 4:
                     # Gaussian NLL case
                     return inputs, labels.sum(
                         axis=1), outputs[:,0,...]  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
@@ -683,7 +686,7 @@ class Runner:
         from scipy.stats import norm
         lower_percentile = 0.10
         upper_percentile = 0.90
-        if self.config.loss_name == 'gaussian_nll':
+        if self.config.loss_name in ['gaussian_nll', 'shift_gaussian_nll']:
             # output has two channels, first is mean, second is log variance
             mean = output[:,0,...]
             log_var = output[:,1,...]
