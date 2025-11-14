@@ -639,7 +639,7 @@ class Runner:
             viz = self.get_visualization(viz_name=viz_func, inputs=x_input, labels=y_target, outputs=output)
             wandb.log({'train/' + viz_func: wandb.Image(viz)}, commit=False)
 
-        if not self.debug and False:
+        if not self.debug:
             # Evaluate the validation dataset
             self.eval(data='val')
 
