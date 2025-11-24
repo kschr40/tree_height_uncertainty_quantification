@@ -294,6 +294,8 @@ class Runner:
         if self.debug and False:
             cut_off = int(0.1 * cut_off)
         n_val = min(int(0.1 * len(trainData)), cut_off)
+        if self.debug:
+            n_val = min(n_val, 50)
         n_train = len(trainData) - n_val
         trainData, valData = torch.utils.data.random_split(trainData, [n_train, n_val], generator=torch.Generator().manual_seed(1234))
 
@@ -367,8 +369,8 @@ class Runner:
         """
         print(
             f"Loading model - reinit: {reinit} | path: {model_path if model_path else 'None specified'}.")
-        if self.config.loss_name in ['gaussian_nll', 'quantile', 'quantile_multiple','gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll']:
-            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll', 'shift_gaussian_nll']:
+        if self.config.loss_name in ['gaussian_nll', 'quantile', 'quantile_multiple','gaussian_mixture', 'lognormal_nll', 'shift_lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll']:
+            if self.config.loss_name in ['gaussian_nll', 'lognormal_nll', 'shift_gaussian_nll', 'shift_lognormal_nll']:
                 out_channels = 2
             elif self.config.loss_name in ['quantile', 'shift_quantile']:
                 out_channels = 3
@@ -412,7 +414,8 @@ class Runner:
                 if months == 6:
                     model = SingleYearUNetSixMonth(n_channels=in_channels[1])
                 elif months == 12:
-                    model = SingleYearUNetTwelveMonth(n_channels=in_channels[1], out_channels=out_channels)
+                    use_log = self.config.loss_name in ['lognormal_nll', 'shift_lognormal_nll']
+                    model = SingleYearUNetTwelveMonth(n_channels=in_channels[1], out_channels=out_channels, use_log=use_log)
             if self.config.time_mode == 'rescale':
                 model = RescaleHeadWrapper(model)
         else:
@@ -448,15 +451,18 @@ class Runner:
         return model
 
     def get_loss(self, loss_name: str, threshold: float = None):
-        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'], f"Loss {loss_name} not implemented."
+        assert loss_name in ['shift_l1', 'shift_l2', 'shift_huber', 'l1', 'l2', 'huber', 'gaussian_nll', 'quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'], f"Loss {loss_name} not implemented."
         if threshold is not None:
             assert loss_name == 'l1', f"Threshold only implemented for l1 loss, not {loss_name}."
         # Dim 1 is the channel dimension, 0 is batch.
         # Sums up to get average height, could be mean without zeros
-        if loss_name in  ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll']:
-            remove_sub_track = lambda out, target: (out, torch.sum(target, dim=1))
+        if loss_name in  ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture','lognormal_nll']:
+            remove_sub_track = lambda out, target: (out, torch.sum(target, dim=1)) 
         else:
-            remove_sub_track = lambda out, target: (out[:,0:1,...], torch.sum(target, dim=1))
+            if self.config.loss_name in ['shift_lognormal_nll', 'lognormal_nll']:
+                remove_sub_track = lambda out, target: (torch.exp(out[:,0:1,...]), torch.sum(target, dim=1))
+            else:    
+                remove_sub_track = lambda out, target: (out[:,0:1,...], torch.sum(target, dim=1))
 
         if loss_name == 'shift_l1':
             from losses.shift_l1_loss import ShiftL1Loss
@@ -493,7 +499,7 @@ class Runner:
             from losses.gaussian_mixture import GaussianMixtureLoss
             loss = GaussianMixtureLoss(ignore_value=0, pre_calculation_function=remove_sub_track)    
         elif loss_name == 'lognormal_nll':
-            from losses.lognormal_nll_loss import LogNormalNLLLoss
+            from losses.lognormal_nll_loss_new import LogNormalNLLLoss
             loss = LogNormalNLLLoss(ignore_value=0, pre_calculation_function=remove_sub_track)
         elif loss_name == 'shift_quantile':
             from losses.shift_quantile_loss import ShiftPinballLoss
@@ -505,6 +511,9 @@ class Runner:
         elif loss_name == 'shift_gaussian_nll':
             from losses.shift_gaussian_nll import ShiftGaussianNLLLoss
             loss = ShiftGaussianNLLLoss(ignore_value=0)
+        elif loss_name == 'shift_lognormal_nll':
+            from losses.shift_lognormal_nll import ShiftLogNormalNLLLoss
+            loss = ShiftLogNormalNLLLoss(ignore_value=0)    
         loss = loss.to(device=self.device)
         return loss
 
@@ -518,11 +527,13 @@ class Runner:
 
         def remove_sub_track_vis(inputs, labels, outputs):
             if outputs.ndim > 1:
-                if self.config.loss_name in ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'lognormal_nll', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'] and outputs.ndim >= 4:
+                if self.config.loss_name in ['gaussian_nll','quantile', 'quantile_multiple', 'gaussian_mixture', 'shift_quantile', 'shift_quantile_multiple', 'shift_gaussian_nll'] and outputs.ndim >= 4:
                     # Gaussian NLL case
                     return inputs, labels.sum(
                         axis=1), outputs[:,0,...]  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
-                
+                elif self.config.loss_name in ['lognormal_nll', 'shift_lognormal_nll'] and outputs.ndim >= 4:
+                    return inputs, labels.sum(
+                        axis=1), np.exp(outputs[:,0,...])  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
                 return inputs, labels.sum(
                     axis=1), outputs  # Same as remove_sub_track, but for visualization (i.e. has outputs as well)
             return inputs, labels, outputs
@@ -710,16 +721,14 @@ class Runner:
             lower_pred = avg_mean - 0.5 * diff_avg_mean
             upper_pred = avg_mean + 0.5 * diff_avg_mean
             return lower_pred, upper_pred
-        elif self.config.loss_name == 'lognormal_nll':
-            epsilon = 1e-6
-            exp_mu = output[:, 0, ...]
+        elif self.config.loss_name in ['lognormal_nll', 'shift_lognormal_nll']:
+            mean = output[:, 0, ...]
             log_var = output[:, 1, ...]
-            mu = torch.log(torch.relu(exp_mu) + epsilon)
             std = torch.sqrt(torch.exp(log_var))
             z_score_lower = norm.ppf(lower_percentile)
             z_score_upper = norm.ppf(upper_percentile)
-            lower_pred = torch.exp(mu + z_score_lower * std)
-            upper_pred = torch.exp(mu + z_score_upper * std)
+            lower_pred = torch.exp(mean + z_score_lower * std)
+            upper_pred = torch.exp(mean + z_score_upper * std)
             return lower_pred, upper_pred
         else:
             return None, None
@@ -767,6 +776,8 @@ class Runner:
                 label_index = torch.where(y_target_summed != 0)
 
                 pred_short = pred[label_index]
+                if self.loss_name in ['lognormal_nll', 'shift_lognormal_nll']:
+                    pred_short = torch.exp(pred_short)
                 lower_pred_short = lower_pred[label_index]
                 upper_pred_short = upper_pred[label_index]
                 y_target_short = y_target_summed[label_index]

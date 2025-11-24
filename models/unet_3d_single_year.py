@@ -214,7 +214,7 @@ class UNetSixMonth(nn.Module):
     
     
 class UNetTwelveMonth(nn.Module):
-    def __init__(self, n_channels: int, out_channels=3):
+    def __init__(self, n_channels: int, out_channels=3, use_log = False):
         super(UNetTwelveMonth, self).__init__()
         # Define the contracting (downsampling) path of the U-Net
         self.conv1 = DoubleConv2(n_channels, 64)  # Starting with 64 channels
@@ -222,6 +222,7 @@ class UNetTwelveMonth(nn.Module):
         self.down2 = DownLayer2(128, 256)
         self.down3 = DownLayer2(256, 512)
         self.down4 = DownLayer2(512, 1024)
+        self.use_log = use_log
 
         # Define the expanding (upsampling) path of the U-Net
         self.up1 = UpLayer2(1024, 512)
@@ -270,6 +271,8 @@ class UNetTwelveMonth(nn.Module):
 
         output = self.last_conv(x4_up)
         output2 = self.last_conv2(x4_up)
+        if self.use_log:
+            output = torch.log(torch.clamp(output, min=1e-6))
         output = torch.concat([output, output2], axis = 1)
 
         # Remove one dimension to match the label data format
