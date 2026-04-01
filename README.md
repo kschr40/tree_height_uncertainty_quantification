@@ -4,6 +4,8 @@
 
 [[`Paper`](https://openreview.net/forum?id=3foK47Zc9y)] [[`BibTeX`](#citing-the-paper)]
 
+This repository is based on the [repository](https://github.com/AI4Forest/Europe-Temporal-Canopy-Height) of the paper ['Capturing Temporal Dynamics in Large-Scale Canopy Tree Height Estimation'](https://openreview.net/forum?id=ri1cs3vtXX).
+
 ## Training pipeline (Training Data required)
 
 A training can be launched by running main.py.
